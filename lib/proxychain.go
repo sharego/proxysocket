@@ -17,7 +17,7 @@ type ProxyChainConn struct {
 	IsClosed        bool
 }
 
-// Exchange on Connection or NoConnection
+// Exchange on connection-orintend or connectionless
 
 // connection 1 : Client <-1-> ProxyServer
 // connection 2 : ProxyDailer <-2-> UpstreamService
