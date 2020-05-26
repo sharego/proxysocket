@@ -9,13 +9,18 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"crypto/tls"
+	"crypto/x509"
 )
 
 // ProxyTunnelServer abstract of different proto server
 type ProxyTunnelServer interface {
 	// Listen on addr, tel main goruntine when finish by wg
-	Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) chan *ProxyChainConn
+	Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *ProxyChainConn
 }
+
+
+// TCP
 
 // ProxyTunnelTCPServer a tcp tunnel server
 type ProxyTunnelTCPServer struct {
@@ -31,18 +36,8 @@ func NewProxyTunnelTCPServer() ProxyTunnelServer {
 	return s
 }
 
-// ProxyTunnelUDPServer a udp tunnel server
-type ProxyTunnelUDPServer struct {
-	Addr *net.UDPAddr
-}
-
-// ProxyTunnelUnixServer a unix tunnel server
-type ProxyTunnelUnixServer struct {
-	Addr *net.UnixAddr
-}
-
 // Serve a tcp listenner
-func (s ProxyTunnelTCPServer) Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) chan *ProxyChainConn {
+func (s ProxyTunnelTCPServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *ProxyChainConn {
 	listener, err := net.ListenTCP(addr.TCPAddr.Network(), addr.TCPAddr)
 	if err != nil {
 		log.Errorf("create tcp socket listen on %s failed: %s", addr.Addr, err)
@@ -112,8 +107,15 @@ func (s ProxyTunnelTCPServer) Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) ch
 
 }
 
+// UDP
+
+// ProxyTunnelUDPServer a udp tunnel server
+type ProxyTunnelUDPServer struct {
+	Addr *net.UDPAddr
+}
+
 // Serve a udp listenner
-func (s ProxyTunnelUDPServer) Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) chan *ProxyChainConn {
+func (s ProxyTunnelUDPServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *ProxyChainConn {
 	conn, err := net.ListenUDP(addr.UDPAddr.Network(), addr.UDPAddr)
 	if err != nil {
 		log.Errorf("create udp socket listen on %s failed: %s", addr.Addr, err)
@@ -171,8 +173,15 @@ func (s ProxyTunnelUDPServer) Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) ch
 
 }
 
+// Unix
+
+// ProxyTunnelUnixServer a unix tunnel server
+type ProxyTunnelUnixServer struct {
+	Addr *net.UnixAddr
+}
+
 // Serve a unix listenner
-func (s ProxyTunnelUnixServer) Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) chan *ProxyChainConn {
+func (s ProxyTunnelUnixServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *ProxyChainConn {
 	listener, err := net.ListenUnix(addr.UnixAddr.Network(), addr.UnixAddr)
 	if err != nil {
 		log.Errorf("create unix socket listen on %s failed: %s", addr.Addr, err)
@@ -221,4 +230,93 @@ func (s ProxyTunnelUnixServer) Serve(addr *ProxyProtoAddr, wg *sync.WaitGroup) c
 	}()
 
 	return ch
+}
+
+// TLS
+
+// ProxyTunnelTLSServer a tls tunnel server
+type ProxyTunnelTLSServer struct {
+	mu    *sync.Mutex
+	conns *list.List
+}
+
+// Serve a tcp listenner
+func (s ProxyTunnelTLSServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *ProxyChainConn {
+
+	if addr.ProtoPropeties == nil {
+		log.Errorf("not init tls dailer propeties: nil")
+		return nil
+	}
+
+	pp, ok := addr.ProtoPropeties.(*TLSProtoPropeties)
+	if !ok {
+		log.Errorf("tls server check propeties, type error: %T", addr.ProtoPropeties)
+		return nil
+	}
+
+	// TODO(xiaow10)
+	serverCert, err := GenerateServerCert("cn.xwsea.com", "116.85.46.195", pp.Ca)
+	if err != nil {
+		log.Errorf("generate server cert failed: %t", err)
+		return nil
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+	}
+	if pp.VerifyClient {
+		pool := x509.NewCertPool()
+		cacert, _ := x509.ParseCertificate(pp.Ca.Certificate[0])
+		pool.AddCert(cacert)
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		tlsConfig.ClientCAs = pool
+	}
+
+	innerListener, err := net.ListenTCP(addr.TCPAddr.Network(), addr.TCPAddr)
+	if err != nil {
+		log.Errorf("create tls socket listen on %s failed: %s", addr.Addr, err)
+		return nil
+	}
+
+	listener := tls.NewListener(innerListener, tlsConfig)
+
+	ch := make(chan *ProxyChainConn)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		log.Infof("start a server listen on %s, waiting to accept connection", addr.Addr)
+
+		quitC := make(chan os.Signal, 1)
+		signal.Notify(quitC, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+		AcceptLoop:
+			for {
+				select {
+				case <-quitC:
+					listener.Close()
+					break AcceptLoop
+				default:
+				}
+
+				innerListener.SetDeadline(time.Now().Add(1 * time.Second))
+				conn, err := listener.Accept()
+				if err != nil {
+					if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+						continue
+					} else {
+						log.Error(err)
+					}
+				} else {
+					log.Infof("accept a connection: %s -> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+					c := &ProxyChainConn{inConn: conn}
+					ch <- c
+				}
+			}
+
+		}()
+
+	return ch
+
 }

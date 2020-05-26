@@ -4,10 +4,11 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"crypto/tls"
 )
 
-// ProxyProtoAddr Handle TCP,UDP,Unix Address
-type ProxyProtoAddr struct {
+// ProxyProto Handle TCP,UDP,Unix Address
+type ProxyProto struct {
 	Addr     string
 	IsTCP    bool
 	IsUDP    bool
@@ -15,10 +16,18 @@ type ProxyProtoAddr struct {
 	TCPAddr  *net.TCPAddr
 	UDPAddr  *net.UDPAddr
 	UnixAddr *net.UnixAddr
+	ProtoPropeties interface{}
+}
+
+// TLSProtoPropeties using for TLS connection
+type TLSProtoPropeties struct {
+	Ca tls.Certificate
+	VerifyServer bool
+	VerifyClient bool
 }
 
 // ResolveAddr parse like: tcp://10.0.0.1:8080
-func ResolveAddr(protoaddr string) (pa *ProxyProtoAddr, err error) {
+func ResolveAddr(protoaddr string) (pp *ProxyProto, err error) {
 	network := "tcp"
 	addr := ""
 
@@ -49,20 +58,33 @@ func ResolveAddr(protoaddr string) (pa *ProxyProtoAddr, err error) {
 		if err != nil {
 			return nil, err
 		}
-		pa = &ProxyProtoAddr{IsTCP: true, TCPAddr: a}
+		pp = &ProxyProto{IsTCP: true, TCPAddr: a}
 	} else if strings.HasPrefix(network, "udp") {
 		a, err := net.ResolveUDPAddr(network, addr)
 		if err != nil {
 			return nil, err
 		}
-		pa = &ProxyProtoAddr{IsUDP: true, UDPAddr: a}
+		pp = &ProxyProto{IsUDP: true, UDPAddr: a}
 	} else if strings.HasPrefix(network, "unix") {
 		a, err := net.ResolveUnixAddr(network, addr)
 		if err != nil {
 			return nil, err
 		}
-		pa = &ProxyProtoAddr{IsUnix: true, UnixAddr: a}
+		pp = &ProxyProto{IsUnix: true, UnixAddr: a}
+	} else if strings.HasPrefix(network, "tls") {
+		a, err := net.ResolveTCPAddr("tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		pp = &ProxyProto{
+			TCPAddr: a,
+			ProtoPropeties: &TLSProtoPropeties{
+				Ca: DefaultCa(),
+				VerifyClient: false,
+				VerifyServer: false,
+			},
+		}
 	}
-	pa.Addr = network + "://" + addr
-	return pa, nil
+	pp.Addr = network + "://" + addr
+	return pp, nil
 }

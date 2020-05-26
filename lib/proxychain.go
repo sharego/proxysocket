@@ -32,7 +32,7 @@ type ProxyChainConn struct {
 // | Simplex | Simplex |   No Need   |
 
 // Exchange inbound and outbound connection data
-func (c *ProxyChainConn) Exchange(to *ProxyProtoAddr) {
+func (c *ProxyChainConn) Exchange(to *ProxyProto) {
 	if c == nil {
 		return
 	}

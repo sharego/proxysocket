@@ -4,17 +4,19 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"crypto/tls"
+	"crypto/x509"
 )
 
 // DialerPools A Upstream Connection Pool
 type DialerPools struct {
 	mu         *sync.Mutex
-	dialerpool map[*ProxyProtoAddr]ProxyTunnelDialer
+	dialerpool map[*ProxyProto]ProxyTunnelDialer
 }
 
 // ProxyTunnelDialer a abstract of different proto client
 type ProxyTunnelDialer interface {
-	SetAddr(*ProxyProtoAddr)
+	SetAddr(*ProxyProto)
 	SupportMultiplex() bool
 	// TCP is Connection-Oriented, UDP is Connectionless
 	IsConnectionless() bool
@@ -25,11 +27,11 @@ type ProxyTunnelDialer interface {
 // AllDialerPools All DialerPools in Memory
 var AllDialerPools = &DialerPools{
 	mu:         new(sync.Mutex),
-	dialerpool: make(map[*ProxyProtoAddr]ProxyTunnelDialer),
+	dialerpool: make(map[*ProxyProto]ProxyTunnelDialer),
 }
 
 // GetDailer response a exits connection or create one
-func (d *DialerPools) GetDailer(addr *ProxyProtoAddr) ProxyTunnelDialer {
+func (d *DialerPools) GetDailer(addr *ProxyProto) ProxyTunnelDialer {
 	d.mu.Lock()
 	if v, ok := d.dialerpool[addr]; ok {
 		if v.SupportMultiplex() {
@@ -46,8 +48,16 @@ func (d *DialerPools) GetDailer(addr *ProxyProtoAddr) ProxyTunnelDialer {
 		p = new(ProxyTunnelUnixDialer)
 	} else if addr.IsUDP {
 		p = new(ProxyTunnelUDPDialer)
+	} else if addr.ProtoPropeties != nil {
+		switch v := addr.ProtoPropeties.(type) {
+		case *TLSProtoPropeties:
+			d := new(ProxyTunnelTLSDialer)
+			d.TLSPropeties = v
+			p = d
+		default:
+			return nil
+		}
 	} else {
-		// TODO(xiaow10)
 		return nil
 	}
 
@@ -60,9 +70,11 @@ func (d *DialerPools) GetDailer(addr *ProxyProtoAddr) ProxyTunnelDialer {
 	return p
 }
 
+// TCP
+
 // ProxyTunnelTCPDialer a tcp connection dailer
 type ProxyTunnelTCPDialer struct {
-	Addr *ProxyProtoAddr
+	Addr *ProxyProto
 }
 
 // SupportMultiplex tcp dialer not support multiplex
@@ -76,7 +88,7 @@ func (p *ProxyTunnelTCPDialer) IsConnectionless() bool {
 }
 
 //SetAddr set a tcp ProxyProtoAddr
-func (p *ProxyTunnelTCPDialer) SetAddr(a *ProxyProtoAddr) {
+func (p *ProxyTunnelTCPDialer) SetAddr(a *ProxyProto) {
 	p.Addr = a
 }
 
@@ -98,9 +110,11 @@ func (p *ProxyTunnelTCPDialer) GetStream() (interface{}, error) {
 	return nil, errors.New("Origin Unix not support multiplex")
 }
 
+// Unix
+
 // ProxyTunnelUnixDialer a unix connection dailer
 type ProxyTunnelUnixDialer struct {
-	Addr *ProxyProtoAddr
+	Addr *ProxyProto
 }
 
 // SupportMultiplex unix dialer not support multiplex
@@ -114,7 +128,7 @@ func (p *ProxyTunnelUnixDialer) IsConnectionless() bool {
 }
 
 //SetAddr set a unix ProxyProtoAddr
-func (p *ProxyTunnelUnixDialer) SetAddr(a *ProxyProtoAddr) {
+func (p *ProxyTunnelUnixDialer) SetAddr(a *ProxyProto) {
 	p.Addr = a
 }
 
@@ -136,9 +150,11 @@ func (p *ProxyTunnelUnixDialer) GetStream() (interface{}, error) {
 	return nil, errors.New("Origin TCP not support multiplex")
 }
 
+// UDP
+
 // ProxyTunnelUDPDialer a udp connection dailer
 type ProxyTunnelUDPDialer struct {
-	Addr *ProxyProtoAddr
+	Addr *ProxyProto
 }
 
 // SupportMultiplex udp dialer not support multiplex
@@ -151,8 +167,8 @@ func (p *ProxyTunnelUDPDialer) IsConnectionless() bool {
 	return true
 }
 
-//SetAddr set a udp ProxyProtoAddr
-func (p *ProxyTunnelUDPDialer) SetAddr(a *ProxyProtoAddr) {
+//SetAddr set a tls ProxyProtoAddr
+func (p *ProxyTunnelUDPDialer) SetAddr(a *ProxyProto) {
 	p.Addr = a
 }
 
@@ -172,4 +188,68 @@ func (p *ProxyTunnelUDPDialer) GetConn() (net.Conn, error) {
 // GetStream udp not support multiplex
 func (p *ProxyTunnelUDPDialer) GetStream() (interface{}, error) {
 	return nil, errors.New("Origin UDP not support multiplex")
+}
+
+// TLS
+
+// ProxyTunnelTLSDialer a udp connection dailer
+type ProxyTunnelTLSDialer struct {
+	Addr *ProxyProto
+	TLSPropeties *TLSProtoPropeties
+}
+
+// SupportMultiplex udp dialer not support multiplex
+func (p *ProxyTunnelTLSDialer) SupportMultiplex() bool {
+	return false
+}
+
+// IsConnectionless udp dialer is connectionless
+func (p *ProxyTunnelTLSDialer) IsConnectionless() bool {
+	return true
+}
+
+//SetAddr set a udp ProxyProtoAddr
+func (p *ProxyTunnelTLSDialer) SetAddr(a *ProxyProto) {
+	p.Addr = a
+}
+
+// GetConn create a TLS connection
+func (p *ProxyTunnelTLSDialer) GetConn() (net.Conn,error) {
+	if p.Addr == nil {
+		return nil, errors.New("not init dailer address")
+	}
+
+	if p.Addr.ProtoPropeties == nil {
+		return nil, errors.New("not init tls dailer propeties")
+	}
+
+	pp := p.TLSPropeties
+
+	cacert, _ := x509.ParseCertificate(pp.Ca.Certificate[0])
+	pool := x509.NewCertPool()
+	pool.AddCert(cacert)
+
+	clientCert, err := GenerateCert("localhost", pp.Ca)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{clientCert},
+		RootCAs: pool,
+		InsecureSkipVerify: !pp.VerifyServer,
+	}
+
+	addr := p.Addr.TCPAddr
+
+	conn, err := tls.Dial(addr.Network(), addr.String(), tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+// GetStream TLS not support multiplex
+func (p *ProxyTunnelTLSDialer) GetStream() (interface{}, error) {
+	return nil, errors.New("Origin TLS not support multiplex")
 }

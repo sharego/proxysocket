@@ -1,14 +1,15 @@
-This is a Reverse Proxy working on Layer 4.
+This is a Reverse Proxy working on Layer 4. On Production, recommend [HAProxy](https://github.com/haproxy/haproxy), which work very well on Layer 4, also support Unix & TLS.
 
 # Protocols
 
 1. TCP
-2. UDP
-3. Unix
+2. TLS
+3. UDP
+4. Unix
 
 ## Supported Detail
 
-A: TCP, Unix
+A: TLS, TCP, Unix
 
 B: UDP
 

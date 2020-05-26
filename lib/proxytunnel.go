@@ -15,8 +15,8 @@ var log = logging.New(os.Stderr, "tunnel", logging.Ldebug)
 type ProxyChainTunnel struct {
 	InAddr        string
 	OutAddr       string
-	InProtoAddr   *ProxyProtoAddr
-	OutPrototAddr *ProxyProtoAddr
+	InProto   *ProxyProto
+	OutProto *ProxyProto
 
 	s ProxyTunnelServer
 	d ProxyTunnelDialer
@@ -36,15 +36,15 @@ func (p ProxyChainTunnel) Serve() {
 		return
 	}
 
-	if inaddr.IsTCP && outaddr.IsUDP {
-		log.Errorf("not support create a tunnel from tcp to udp protocol, in: %s, out: %s", inaddr.Addr, outaddr.Addr)
+	if !inaddr.IsUDP && outaddr.IsUDP {
+		log.Errorf("not support create a tunnel from tls/tcp/unix to udp protocol, in: %s, out: %s", inaddr.Addr, outaddr.Addr)
 		return
 	} else if inaddr.IsUDP && !outaddr.IsUDP {
-		log.Warnf("not support create a tunnel from tcp to udp protocol, in: %s, out: %s", inaddr.Addr, outaddr.Addr)
+		log.Warnf("not support create a tunnel from tls/tcp/unix to udp protocol, in: %s, out: %s", inaddr.Addr, outaddr.Addr)
 	}
 
-	p.InProtoAddr = inaddr
-	p.OutPrototAddr = outaddr
+	p.InProto = inaddr
+	p.OutProto = outaddr
 
 	var s ProxyTunnelServer
 
@@ -54,6 +54,16 @@ func (p ProxyChainTunnel) Serve() {
 		s = new(ProxyTunnelUDPServer)
 	} else if inaddr.IsUnix {
 		s = new(ProxyTunnelUnixServer)
+	} else if inaddr.ProtoPropeties != nil {
+		switch inaddr.ProtoPropeties.(type) {
+		case *TLSProtoPropeties:
+			s = new(ProxyTunnelTLSServer)
+		default:
+			log.Errorf("not support protocol, in: %s, out: %s", inaddr.Addr, outaddr.Addr)
+		}
+	} else {
+		log.Errorf("not support protocol, in: %s, out: %s", inaddr.Addr, outaddr.Addr)
+		return
 	}
 
 	wg := new(sync.WaitGroup)
@@ -93,7 +103,7 @@ ProxyLabel:
 			go func() {
 				pwg.Add(1)
 				defer pwg.Done()
-				conn.Exchange(p.OutPrototAddr)
+				conn.Exchange(p.OutProto)
 			}()
 		default:
 		}
