@@ -1,4 +1,6 @@
-This is a Reverse Proxy working on Layer 4. On Production, recommend [HAProxy](https://github.com/haproxy/haproxy), which work very well on Layer 4, also support Unix & TLS.
+This is a Reverse Proxy working on Layer 4.
+
+On Production, recommend [HAProxy](https://github.com/haproxy/haproxy), which work very well on Layer 4, also support Unix & TLS.
 
 # Protocols
 

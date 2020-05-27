@@ -9,19 +9,19 @@ import (
 
 // ProxyProto Handle TCP,UDP,Unix Address
 type ProxyProto struct {
-	Addr     string
-	IsTCP    bool
-	IsUDP    bool
-	IsUnix   bool
-	TCPAddr  *net.TCPAddr
-	UDPAddr  *net.UDPAddr
-	UnixAddr *net.UnixAddr
+	Addr           string
+	IsTCP          bool
+	IsUDP          bool
+	IsUnix         bool
+	TCPAddr        *net.TCPAddr
+	UDPAddr        *net.UDPAddr
+	UnixAddr       *net.UnixAddr
 	ProtoPropeties interface{}
 }
 
 // TLSProtoPropeties using for TLS connection
 type TLSProtoPropeties struct {
-	Ca tls.Certificate
+	Ca           tls.Certificate
 	VerifyServer bool
 	VerifyClient bool
 }
@@ -79,9 +79,9 @@ func ResolveAddr(protoaddr string) (pp *ProxyProto, err error) {
 		pp = &ProxyProto{
 			TCPAddr: a,
 			ProtoPropeties: &TLSProtoPropeties{
-				Ca: DefaultCa(),
-				VerifyClient: false,
-				VerifyServer: false,
+				Ca:           DefaultCa(),
+				VerifyClient: true,
+				VerifyServer: true,
 			},
 		}
 	}
