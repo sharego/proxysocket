@@ -225,19 +225,15 @@ func (p *ProxyTunnelTLSDialer) GetConn() (net.Conn,error) {
 
 	pp := p.TLSPropeties
 
-	cacert, _ := x509.ParseCertificate(pp.Ca.Certificate[0])
-	pool := x509.NewCertPool()
-	pool.AddCert(cacert)
-
-	clientCert, err := GenerateCert("localhost", pp.Ca)
-	if err != nil {
-		return nil, err
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{*pp.Cert},
+		InsecureSkipVerify: !pp.VerifyServer,
 	}
 
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{clientCert},
-		RootCAs: pool,
-		InsecureSkipVerify: !pp.VerifyServer,
+	if pp.VerifyServer {
+		pool := x509.NewCertPool()
+		pool.AddCert(pp.Cacert)
+		tlsConfig.RootCAs = pool
 	}
 
 	addr := p.Addr.TCPAddr

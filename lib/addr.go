@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"crypto/tls"
+	"crypto/x509"
 )
 
 // ProxyProto Handle TCP,UDP,Unix Address
@@ -21,7 +22,8 @@ type ProxyProto struct {
 
 // TLSProtoPropeties using for TLS connection
 type TLSProtoPropeties struct {
-	Ca           tls.Certificate
+	Cacert *x509.Certificate
+	Cert *tls.Certificate
 	VerifyServer bool
 	VerifyClient bool
 }
@@ -77,12 +79,8 @@ func ResolveAddr(protoaddr string) (pp *ProxyProto, err error) {
 			return nil, err
 		}
 		pp = &ProxyProto{
-			TCPAddr: a,
-			ProtoPropeties: &TLSProtoPropeties{
-				Ca:           DefaultCa(),
-				VerifyClient: true,
-				VerifyServer: true,
-			},
+			TCPAddr:        a,
+			ProtoPropeties: &TLSProtoPropeties{},
 		}
 	}
 	pp.Addr = network + "://" + addr

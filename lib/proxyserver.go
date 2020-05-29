@@ -254,20 +254,13 @@ func (s ProxyTunnelTLSServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *
 		return nil
 	}
 
-	// TODO(xiaow10)
-	serverCert, err := GenerateServerCert("cn.xwsea.com", "116.85.46.195", pp.Ca)
-	if err != nil {
-		log.Errorf("generate server cert failed: %t", err)
-		return nil
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{*pp.Cert},
 	}
 
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-	}
 	if pp.VerifyClient {
 		pool := x509.NewCertPool()
-		cacert, _ := x509.ParseCertificate(pp.Ca.Certificate[0])
-		pool.AddCert(cacert)
+		pool.AddCert(pp.Cacert)
 		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		tlsConfig.ClientCAs = pool
 	}

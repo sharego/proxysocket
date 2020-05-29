@@ -1,5 +1,6 @@
+// Package cmd root command
 /*
-Copyright © 2020 NAME HERE <EMAIL ADDRESS>
+Copyright © 2020 xiaowei <xw_cht.y@live.cn>
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,13 +19,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sync"
 
+	"github.com/sharego/proxysocket/lib"
 	"github.com/spf13/cobra"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
-
-	"github.com/sharego/proxysocket/lib"
 )
 
 var cfgFile string
@@ -34,10 +35,37 @@ var rootCmd = &cobra.Command{
 	Use:   "proxysocket inbound outbound",
 	Short: "Another socket proxy",
 	Long:  `This proxy support tcp, udp and unix socket, like: tcp://127.0.0.1:80`,
-	Args:  cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		pc := lib.ProxyChainTunnel{InAddr: args[0], OutAddr: args[1]}
-		pc.Serve()
+		apps := viper.AllSettings()
+		if apps == nil || len(apps) == 0 {
+			fmt.Fprintf(os.Stderr, "Empty Config file: %v\n", viper.ConfigFileUsed())
+			return
+		}
+		var servers []*lib.ServerConfig
+		for k := range apps {
+			var s lib.ServerConfig
+			if e := viper.UnmarshalKey(k, &s); e != nil {
+				fmt.Fprintf(os.Stderr, "Parse Config file: %v, error: %s\n", viper.ConfigFileUsed(), e)
+				return
+			}
+			s.Name = k
+			fmt.Printf("key = %s, value=%v\n", k, s)
+			servers = append(servers, &s)
+		}
+
+		wg := new(sync.WaitGroup)
+
+		for _, s := range servers {
+			pc := lib.ProxyChainTunnel{}
+			wg.Add(1)
+			go func(sc *lib.ServerConfig) {
+				defer wg.Done()
+				pc.Serve(sc)
+				fmt.Printf("%s(%s) quit\n",sc.Name, sc.In)
+			}(s)
+		}
+
+		wg.Wait()
 	},
 }
 
@@ -53,11 +81,7 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.proxysocket.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.proxysocket)")
 
 }
 
@@ -76,13 +100,18 @@ func initConfig() {
 
 		// Search config in home directory with name ".proxysocket" (without extension).
 		viper.AddConfigPath(home)
+		viper.AddConfigPath(".")
 		viper.SetConfigName(".proxysocket")
 	}
+
+	viper.SetConfigType("yaml")
 
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	} else {
+		fmt.Fprintf(os.Stderr, "Parse config file: %s, failed: %s\n", viper.ConfigFileUsed(), err)
 	}
 }
