@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io/ioutil"
 	"math/big"
 	"net"
 	"strings"
@@ -15,7 +16,7 @@ import (
 )
 
 // DefaultCa system built-in Root Certificate
-func DefaultCa() (cert tls.Certificate) {
+func DefaultCa() (*tls.Certificate) {
 	// Notice should not padding line startwith space
 	certPem := []byte(`-----BEGIN CERTIFICATE-----
 	MIID8TCCAtmgAwIBAgIJAKZF6Lqx4mJNMA0GCSqGSIb3DQEBCwUAMIGOMQswCQYD
@@ -76,11 +77,11 @@ func DefaultCa() (cert tls.Certificate) {
 	if err != nil {
 		log.Fatalf("Parse Default CA Error: %s", err)
 	}
-	return cert
+	return &cert
 }
 
 // GenerateCa make a new inner ca cert
-func GenerateCa() tls.Certificate {
+func GenerateCa() *tls.Certificate {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		panic(err)
@@ -97,11 +98,11 @@ func GenerateCa() tls.Certificate {
 	if err != nil {
 		log.Fatalf("Parse Default CA Error: %s", err)
 	}
-	return tlsCert
+	return &tlsCert
 }
 
 // GenerateServerCert make a tls certificate
-func GenerateServerCert(name string, ip string, ca tls.Certificate) (cert tls.Certificate, err error) {
+func GenerateServerCert(name string, ip string, ca *tls.Certificate) (cert *tls.Certificate, err error) {
 	ip127 := net.ParseIP("127.0.0.1")
 	ips := []net.IP{ip127}
 	if len(strings.TrimSpace(ip)) > 0 {
@@ -115,12 +116,12 @@ func GenerateServerCert(name string, ip string, ca tls.Certificate) (cert tls.Ce
 }
 
 // GenerateCert make a tls certificate
-func GenerateCert(name string, ca tls.Certificate) (cert tls.Certificate, err error) {
+func GenerateCert(name string, ca *tls.Certificate) (cert *tls.Certificate, err error) {
 	return GenerateIPCert(name, nil, ca)
 }
 
 // GenerateIPCert make a tls certificate
-func GenerateIPCert(name string, ips []net.IP, ca tls.Certificate) (cert tls.Certificate, err error) {
+func GenerateIPCert(name string, ips []net.IP, ca *tls.Certificate) (cert *tls.Certificate, err error) {
 	cer := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
@@ -163,13 +164,27 @@ func GenerateIPCert(name string, ips []net.IP, ca tls.Certificate) (cert tls.Cer
 		return
 	}
 
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPem := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	tlsCert, err := tls.X509KeyPair(certPem, keyPem)
 	if err != nil {
 		return
 	}
 
-	return tlsCert, nil
+	return &tlsCert, nil
+}
+
+// LoadCert load x509 Certificate
+func LoadCert(fp string) (cert *x509.Certificate, err error) {
+	certPem, err := ioutil.ReadFile("testdata/hello")
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(certPem)
+}
+
+// LoadCertKeyPair load x509 Certificate and private key
+func LoadCertKeyPair(fpcert, fpkey string) (cert tls.Certificate, err error) {
+	return tls.LoadX509KeyPair(fpcert, fpkey)
 }
