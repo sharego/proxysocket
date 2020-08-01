@@ -24,6 +24,11 @@ import (
 	"github.com/sharego/proxysocket/lib"
 	"github.com/spf13/cobra"
 
+	"net/http"
+
+	// for pprofile with a http server
+	_ "net/http/pprof"
+
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
 )
@@ -36,6 +41,10 @@ var rootCmd = &cobra.Command{
 	Short: "Another socket proxy",
 	Long:  `This proxy support tcp, udp and unix socket, like: tcp://127.0.0.1:80`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if debug, _ := cmd.Flags().GetBool("debug"); debug {
+			lib.SetLogDebug()
+			DebugProfile()
+		}
 		apps := viper.AllSettings()
 		if apps == nil || len(apps) == 0 {
 			fmt.Fprintf(os.Stderr, "Empty Config file: %v\n", viper.ConfigFileUsed())
@@ -61,12 +70,17 @@ var rootCmd = &cobra.Command{
 			go func(sc *lib.ServerConfig) {
 				defer wg.Done()
 				pc.Serve(sc)
-				fmt.Printf("%s(%s) quit\n",sc.Name, sc.In)
+				fmt.Printf("%s(%s) quit\n", sc.Name, sc.In)
 			}(s)
 		}
 
 		wg.Wait()
 	},
+}
+
+// DebugProfile start a http server listen on 61099 to pp
+func DebugProfile() {
+	go http.ListenAndServe("0.0.0.0:61099", nil)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -82,6 +96,10 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.proxysocket)")
+
+	rootCmd.PersistentFlags().BoolP("debug", "", false, "debug mode")
+
+	// viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 
 }
 

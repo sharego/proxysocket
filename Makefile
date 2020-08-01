@@ -4,8 +4,10 @@ NAME:=proxysocket
 GITCOMMIT:=$(shell git describe --always)
 LDFlags:=-ldflags=" -X github.com/sharego/proxysocket/cmd.GitCommit=$(GITCOMMIT) -X github.com/sharego/proxysocket/lib.ForceCheckBoth=yes"
 
+DebugLDFlags:=-ldflags=" -X github.com/sharego/proxysocket/cmd.GitCommit=$(GITCOMMIT)"
+
 debug:
-	CGO_ENABLED=$(CGO_ENABLED) go build $(LDFlags) -o $(NAME) .
+	CGO_ENABLED=$(CGO_ENABLED) go build $(DebugLDFlags) -o $(NAME) .
 
 .PHONY : all
 

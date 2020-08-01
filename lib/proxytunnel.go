@@ -1,19 +1,19 @@
 package lib
 
 import (
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
+	"crypto/x509"
 	"fmt"
 	"net"
+	"os"
+	"os/signal"
 	"strings"
-	"crypto/x509"
+	"sync"
+	"syscall"
 
 	logging "github.com/go-fastlog/fastlog"
 )
 
-var log = logging.New(os.Stderr, "tunnel", logging.Ldebug)
+var log = logging.New(os.Stderr, "tunnel", logging.Lerror)
 
 // ForceCheckClient global setting force check client is authenticated
 var ForceCheckClient string
@@ -24,16 +24,24 @@ var ForceCheckServer string
 // ForceCheckBoth global setting force check server and client is authenticated
 var ForceCheckBoth string
 
+var serverCaConfigLiteralValue = "value"
+var clientCaConfigLiteralValue = ""
+
+//SetLogDebug set log level to debug
+func SetLogDebug() {
+	log.SetFlags(log.Flags() | logging.Ldebug)
+}
+
 // ServerConfig to config a app server
 type ServerConfig struct {
 	Name       string `json:"-"`
 	In         string `json:"in"`
 	Out        string `json:"out"`
-	ServerCa         string `json:"serverca"`
-	ClientCa         string `json:"clientca"`
+	ServerCa   string `json:"serverca"`
+	ClientCa   string `json:"clientca"`
 	Incert     string `json:"incert"`
 	Inkey      string `json:"inkey"`
-	Inip string `json:"inip"`
+	Inip       string `json:"inip"`
 	Nocheckin  bool   `json:"nocheckin"`
 	Outcert    string `json:"outcert"`
 	Outkey     string `json:"outkey"`
@@ -42,9 +50,9 @@ type ServerConfig struct {
 
 // ProxyChainTunnel compose TunnelServer and Dialer
 type ProxyChainTunnel struct {
-	InAddr string
-	OutAddr string
-	InProto *ProxyProto
+	InAddr   string
+	OutAddr  string
+	InProto  *ProxyProto
 	OutProto *ProxyProto
 
 	s ProxyTunnelServer
@@ -106,7 +114,7 @@ func (p *ProxyChainTunnel) ParseServerConfig(sc *ServerConfig) (err error) {
 	p.OutAddr = sc.Out
 	inaddr, err := ResolveAddr(p.InAddr)
 	if err != nil {
-		return fmt.Errorf("parse inbound address %s.In: %s, error: %s", sc.Name,p.InAddr, err)
+		return fmt.Errorf("parse inbound address %s.In: %s, error: %s", sc.Name, p.InAddr, err)
 	}
 
 	outaddr, err := ResolveAddr(p.OutAddr)
@@ -143,7 +151,7 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 			}
 		} else if len(sc.Incert) > 0 {
 			return fmt.Errorf("parse %s error: missing private key file path", sc.Name)
-		} else if len(sc.Inkey) > 0{
+		} else if len(sc.Inkey) > 0 {
 			return fmt.Errorf("parse %s error: missing private key file path")
 		} else {
 			log.Warnf("parse %s, make server Certificate", sc.Name)
@@ -162,13 +170,13 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 
 		prop.VerifyClient = !sc.Nocheckin
 
-		if len(ForceCheckClient) > 0 || len(ForceCheckBoth) > 0{
+		if len(ForceCheckClient) > 0 || len(ForceCheckBoth) > 0 {
 			log.Warnf("ignore config, %s force VerifyClient", sc.Name)
 			prop.VerifyClient = true
 		}
 
 		if prop.VerifyClient {
-			if strings.ToLower(sc.ClientCa) == "inner" {
+			if sc.ClientCa == clientCaConfigLiteralValue {
 				cert, _ := x509.ParseCertificate(defaultCa.Certificate[0])
 				prop.Cacert = cert
 			} else if len(sc.ClientCa) > 0 {
@@ -194,7 +202,7 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 			}
 		} else if len(sc.Outcert) > 0 {
 			return fmt.Errorf("parse %s out error: missing private key file path", sc.Name)
-		} else if len(sc.Outkey) > 0{
+		} else if len(sc.Outkey) > 0 {
 			return fmt.Errorf("parse %s out error: missing private key file path")
 		} else {
 			log.Warnf("parse %s, make client Certificate", sc.Name)
@@ -213,7 +221,7 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 		}
 
 		if prop.VerifyServer {
-			if strings.ToLower(sc.ServerCa) == "inner" {
+			if sc.ServerCa == serverCaConfigLiteralValue {
 				cert, _ := x509.ParseCertificate(defaultCa.Certificate[0])
 				prop.Cacert = cert
 			} else if len(sc.ServerCa) > 0 {
@@ -232,7 +240,6 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 	return nil
 }
 
-
 // HandleConnection start proxy data
 func (p ProxyChainTunnel) HandleConnection(ch <-chan *ProxyChainConn, wg *sync.WaitGroup) {
 
@@ -244,20 +251,19 @@ func (p ProxyChainTunnel) HandleConnection(ch <-chan *ProxyChainConn, wg *sync.W
 
 	pwg := sync.WaitGroup{}
 
-ProxyLabel:
-	for {
-		select {
-		case <-quitC:
-			break ProxyLabel
-		case conn := <-ch:
-			go func() {
+	ProxyLabel:
+		for {
+			select {
+			case <-quitC:
+				break ProxyLabel
+			case conn := <-ch:
 				pwg.Add(1)
-				defer pwg.Done()
-				conn.Exchange(p.OutProto)
-			}()
-		default:
+				go func() {
+					defer pwg.Done()
+					conn.Exchange(p.OutProto)
+				}()
+			}
 		}
-	}
 
 	pwg.Wait()
 

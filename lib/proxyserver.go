@@ -3,14 +3,14 @@ package lib
 import (
 	"container/list"
 
+	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
-	"crypto/tls"
-	"crypto/x509"
 )
 
 // ProxyTunnelServer abstract of different proto server
@@ -18,7 +18,6 @@ type ProxyTunnelServer interface {
 	// Listen on addr, tel main goruntine when finish by wg
 	Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *ProxyChainConn
 }
-
 
 // TCP
 
@@ -70,7 +69,7 @@ func (s ProxyTunnelTCPServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *
 				break AcceptLoop
 			default:
 			}
-			listener.SetDeadline(time.Now().Add(1 * time.Second))
+			listener.SetDeadline(time.Now().Add(10 * time.Second))
 			conn, err := listener.Accept()
 			if err != nil {
 				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
@@ -208,7 +207,7 @@ func (s ProxyTunnelUnixServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan 
 			default:
 			}
 
-			listener.SetDeadline(time.Now().Add(1 * time.Second))
+			listener.SetDeadline(time.Now().Add(10 * time.Second))
 			conn, err := listener.Accept()
 			if err != nil {
 				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
@@ -284,31 +283,31 @@ func (s ProxyTunnelTLSServer) Serve(addr *ProxyProto, wg *sync.WaitGroup) chan *
 		quitC := make(chan os.Signal, 1)
 		signal.Notify(quitC, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-		AcceptLoop:
-			for {
-				select {
-				case <-quitC:
-					listener.Close()
-					break AcceptLoop
-				default:
-				}
-
-				innerListener.SetDeadline(time.Now().Add(1 * time.Second))
-				conn, err := listener.Accept()
-				if err != nil {
-					if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-						continue
-					} else {
-						log.Error(err)
-					}
-				} else {
-					log.Infof("accept a connection: %s -> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
-					c := &ProxyChainConn{inConn: conn}
-					ch <- c
-				}
+	AcceptLoop:
+		for {
+			select {
+			case <-quitC:
+				listener.Close()
+				break AcceptLoop
+			default:
 			}
 
-		}()
+			innerListener.SetDeadline(time.Now().Add(1 * time.Second))
+			conn, err := listener.Accept()
+			if err != nil {
+				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+					continue
+				} else {
+					log.Error(err)
+				}
+			} else {
+				log.Infof("accept a connection: %s -> %s", conn.RemoteAddr().String(), conn.LocalAddr().String())
+				c := &ProxyChainConn{inConn: conn}
+				ch <- c
+			}
+		}
+
+	}()
 
 	return ch
 
