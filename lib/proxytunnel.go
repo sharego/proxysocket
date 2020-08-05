@@ -149,10 +149,10 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 			} else {
 				return fmt.Errorf("parse %s in error: %s", sc.Name, err)
 			}
-		} else if len(sc.Incert) > 0 {
+		} else if len(sc.Incert) > 0 { // only has cert no key
 			return fmt.Errorf("parse %s error: missing private key file path", sc.Name)
-		} else if len(sc.Inkey) > 0 {
-			return fmt.Errorf("parse %s error: missing private key file path")
+		} else if len(sc.Inkey) > 0 { // only has key no cert
+			return fmt.Errorf("parse %s error: missing private key file path", sc.Name)
 		} else {
 			log.Warnf("parse %s, make server Certificate", sc.Name)
 			if len(sc.Inip) > 0 {
@@ -203,7 +203,7 @@ func (p *ProxyChainTunnel) parseTLSPropeties(sc *ServerConfig) (err error) {
 		} else if len(sc.Outcert) > 0 {
 			return fmt.Errorf("parse %s out error: missing private key file path", sc.Name)
 		} else if len(sc.Outkey) > 0 {
-			return fmt.Errorf("parse %s out error: missing private key file path")
+			return fmt.Errorf("parse %s out error: missing private key file path", sc.Name)
 		} else {
 			log.Warnf("parse %s, make client Certificate", sc.Name)
 			cert, err := GenerateCert("localhost", defaultCa)
@@ -251,19 +251,19 @@ func (p ProxyChainTunnel) HandleConnection(ch <-chan *ProxyChainConn, wg *sync.W
 
 	pwg := sync.WaitGroup{}
 
-	ProxyLabel:
-		for {
-			select {
-			case <-quitC:
-				break ProxyLabel
-			case conn := <-ch:
-				pwg.Add(1)
-				go func() {
-					defer pwg.Done()
-					conn.Exchange(p.OutProto)
-				}()
-			}
+ProxyLabel:
+	for {
+		select {
+		case <-quitC:
+			break ProxyLabel
+		case conn := <-ch:
+			pwg.Add(1)
+			go func() {
+				defer pwg.Done()
+				conn.Exchange(p.OutProto)
+			}()
 		}
+	}
 
 	pwg.Wait()
 
